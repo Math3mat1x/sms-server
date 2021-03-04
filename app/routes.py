@@ -10,20 +10,40 @@ def users():
 def send_sms():
     r = request.json
     r = json.loads(r)
-    message = r["message"]
-    to = r["receipient"]
 
-    if to in allowed_users:
-        sent = sms.send(allowed_users[to], message)
+    try:
+        message = r["message"]
+        receipients = r["receipients"]
+        if type(receipients) == str: receipients = [receipients]
+        receipients = list(set(receipients)) # remove duplicates
+        if not (receipients and message): raise KeyError # if the value of message or receipients is empty
+    except KeyError:
+        return "Your API call is not valid."
 
-        if sent:
-            return "Sent"
-        else:
-            error = twilio(to, message)
-            if error[0]:
-                return "Twilio Error:\nCode %s\nMessage: %s" % (error[0], error[1])
+    sent, twilio_sent, twilio_errors, errors = list(), list(), list(), list()
+    for receipient in receipients:
+        if receipient in allowed_users:
+            success = sms.send(allowed_users[receipient], message)
+
+            if success:
+                sent.append(receipient)
             else:
-                price = str(error[2]) + "USD" if error[2] else "free"
-                return "Sent with Twilio.\nPrice: %s" % (price)
-    else:
-        return "You cannot send a message to this user."
+                error = twilio(receipient, message)
+                if error[0]:
+                    twilio_errors.append((receipient, error[0], error[1]))
+                else:
+                    twilio_sent.append(receipient)
+        else:
+            errors.append(receipient)
+
+    output = dict()
+    if sent:
+        output["sent"] = sent
+    if twilio_sent:
+        output["twilio_sent"] = twilio_sent
+    if twilio_errors:
+        output["twilio_errors"] = {e[0]:(e[1], e[2]) for e in twilio_errors}
+    if errors:
+        output["errors"] = errors
+
+    return json.dumps(output)
